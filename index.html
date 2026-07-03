@@ -149,9 +149,98 @@
       transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
     }
 
-    input:focus {
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      color: var(--ink);
+      background: rgba(255, 255, 255, .9);
+      font: inherit;
+      font-size: 15px;
+      line-height: 1.7;
+      outline: none;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+
+    input:focus,
+    textarea:focus {
       border-color: rgba(224, 82, 127, .72);
       box-shadow: 0 0 0 4px rgba(224, 82, 127, .14);
+    }
+
+    .bulk {
+      margin-top: 34px;
+      padding-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+
+    .bulk-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.25;
+    }
+
+    .section-copy {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .bulk-output {
+      margin-top: 18px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .78);
+      max-height: 380px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      color: #344054;
+      background: #fff8f1;
+      font-weight: 900;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .status-ok {
+      color: #13715f;
+      font-weight: 800;
+    }
+
+    .status-bad {
+      color: #b42318;
+      font-weight: 800;
     }
 
     .actions {
@@ -374,7 +463,8 @@
 
       .form,
       .result,
-      .insights {
+      .insights,
+      .bulk-grid {
         grid-template-columns: 1fr;
       }
 
@@ -414,6 +504,43 @@
           </div>
 
           <p class="hint">天数按“入职当天为第 1 天”计算；生日只取月和日，生日年份用于识别出生日期。</p>
+
+          <section class="bulk" aria-label="批量计算">
+            <h2 class="section-title">批量计算</h2>
+            <p class="section-copy">从 Excel 分别复制两列：左侧粘贴入职日期列表，右侧粘贴生日月日列表。两边按行一一对应计算。</p>
+            <div class="bulk-grid">
+              <div class="field">
+                <label for="bulkJoinInput">入职日期列表</label>
+                <textarea id="bulkJoinInput" spellcheck="false" placeholder="1999.09.09&#10;2020.5.12&#10;2022-04-18"></textarea>
+              </div>
+              <div class="field">
+                <label for="bulkBirthdayInput">生日列表</label>
+                <textarea id="bulkBirthdayInput" spellcheck="false" placeholder="0101&#10;0929&#10;1009"></textarea>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="primary" type="button" id="bulkBtn">批量生成</button>
+              <button class="secondary" type="button" id="copyBulkBtn">复制结果</button>
+              <button class="secondary" type="button" id="bulkSampleBtn">填入批量示例</button>
+            </div>
+            <p class="hint" id="bulkSummary">批量结果会显示在下方，可直接复制回 Excel。</p>
+            <div class="bulk-output" id="bulkOutput" hidden>
+              <table>
+                <thead>
+                  <tr>
+                    <th>序号</th>
+                    <th>入职日期</th>
+                    <th>生日月日</th>
+                    <th>下一次生日</th>
+                    <th>入职第几天</th>
+                    <th>第几次生日</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="bulkRows"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -482,9 +609,18 @@
     const wishText = document.querySelector("#wishText");
     const quoteText = document.querySelector("#quoteText");
     const message = document.querySelector("#message");
+    const bulkJoinInput = document.querySelector("#bulkJoinInput");
+    const bulkBirthdayInput = document.querySelector("#bulkBirthdayInput");
+    const bulkBtn = document.querySelector("#bulkBtn");
+    const copyBulkBtn = document.querySelector("#copyBulkBtn");
+    const bulkSampleBtn = document.querySelector("#bulkSampleBtn");
+    const bulkSummary = document.querySelector("#bulkSummary");
+    const bulkOutput = document.querySelector("#bulkOutput");
+    const bulkRows = document.querySelector("#bulkRows");
 
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     let lastBirthdayInfo = null;
+    let lastBulkRows = [];
 
     function toLocalDate(value) {
       const [year, month, day] = value.split("-").map(Number);
@@ -505,6 +641,62 @@
       const month = String(date.getMonth() + 1).padStart(2, "0");
       const day = String(date.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
+    }
+
+    function monthDayKey(month, day) {
+      return `${String(month + 1).padStart(2, "0")}${String(day).padStart(2, "0")}`;
+    }
+
+    function isValidDate(year, month, day) {
+      const date = new Date(year, month - 1, day);
+      return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+    }
+
+    function parseJoinDate(value) {
+      const text = String(value || "").trim();
+      const match = text.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+      if (!match) {
+        throw new Error("入职日期格式应为 1999.09.09");
+      }
+      const [, yearText, monthText, dayText] = match;
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const day = Number(dayText);
+      if (!isValidDate(year, month, day)) {
+        throw new Error("入职日期不存在");
+      }
+      return new Date(year, month - 1, day);
+    }
+
+    function parseBirthdayMonthDay(value) {
+      const text = String(value || "").trim();
+      let month;
+      let day;
+      const compact = text.match(/^(\d{2})(\d{2})$/);
+      const compactWithoutZero = text.match(/^(\d{1})(\d{2})$/);
+      const separated = text.match(/^(\d{1,2})[./-](\d{1,2})$/);
+      if (compact) {
+        month = Number(compact[1]);
+        day = Number(compact[2]);
+      } else if (compactWithoutZero) {
+        month = Number(compactWithoutZero[1]);
+        day = Number(compactWithoutZero[2]);
+      } else if (separated) {
+        month = Number(separated[1]);
+        day = Number(separated[2]);
+      } else {
+        throw new Error("生日格式应为 0101");
+      }
+      if (month < 1 || month > 12 || day < 1 || day > 31) {
+        throw new Error("生日月日不存在");
+      }
+      if (month !== 2 || day !== 29) {
+        const check = new Date(2024, month - 1, day);
+        if (check.getMonth() !== month - 1 || check.getDate() !== day) {
+          throw new Error("生日月日不存在");
+        }
+      }
+      return { month: month - 1, day };
     }
 
     function normalizeBirthday(year, month, day) {
@@ -531,6 +723,21 @@
         }
       }
       return count;
+    }
+
+    function calculateBirthdayResult(joinDate, birthdayMonth, birthdayDay) {
+      const today = new Date();
+      const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      let nextBirthday = normalizeBirthday(currentDate.getFullYear(), birthdayMonth, birthdayDay);
+      if (nextBirthday < currentDate) {
+        nextBirthday = normalizeBirthday(currentDate.getFullYear() + 1, birthdayMonth, birthdayDay);
+      }
+      if (nextBirthday < joinDate) {
+        throw new Error("下一次生日早于入职日期");
+      }
+      const workDay = dayDiffInclusive(joinDate, nextBirthday);
+      const birthdayCount = countBirthdaysAfterJoin(joinDate, nextBirthday, birthdayMonth, birthdayDay);
+      return { birthdayCount, nextBirthday, workDay };
     }
 
     function getConstellation(month, day) {
@@ -632,18 +839,15 @@
       const birthdayMonth = birthDate.getMonth();
       const birthdayDay = birthDate.getDate();
 
-      let nextBirthday = normalizeBirthday(currentDate.getFullYear(), birthdayMonth, birthdayDay);
-      if (nextBirthday < currentDate) {
-        nextBirthday = normalizeBirthday(currentDate.getFullYear() + 1, birthdayMonth, birthdayDay);
-      }
-
-      if (nextBirthday < joinDate) {
+      let result;
+      try {
+        result = calculateBirthdayResult(joinDate, birthdayMonth, birthdayDay);
+      } catch (error) {
         showError("下一次生日早于入职日期，暂时无法计算入职后的生日次数。请确认入职日期是否正确。");
         return;
       }
 
-      const workDay = dayDiffInclusive(joinDate, nextBirthday);
-      const count = countBirthdaysAfterJoin(joinDate, nextBirthday, birthdayMonth, birthdayDay);
+      const { birthdayCount: count, nextBirthday, workDay } = result;
       const daysUntilBirthday = dayDiffInclusive(currentDate, nextBirthday) - 1;
       const constellation = getConstellation(birthdayMonth, birthdayDay);
       const zodiac = getChineseZodiac(birthDate.getFullYear());
@@ -672,6 +876,120 @@
       renderWish(lastBirthdayInfo);
     }
 
+    function splitBulkColumn(value) {
+      return String(value || "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    }
+
+    function renderBulkResults() {
+      bulkRows.textContent = "";
+      lastBulkRows.forEach((row) => {
+        const tr = document.createElement("tr");
+        const cells = [
+          row.index,
+          row.joinText,
+          row.birthdayText,
+          row.nextBirthdayText,
+          row.workDayText,
+          row.birthdayCountText,
+          row.status
+        ];
+        cells.forEach((cell, cellIndex) => {
+          const td = document.createElement("td");
+          td.textContent = cell;
+          if (cellIndex === 6) {
+            td.className = row.ok ? "status-ok" : "status-bad";
+          }
+          tr.append(td);
+        });
+        bulkRows.append(tr);
+      });
+      bulkOutput.hidden = lastBulkRows.length === 0;
+    }
+
+    function calculateBulk() {
+      const joinValues = splitBulkColumn(bulkJoinInput.value);
+      const birthdayValues = splitBulkColumn(bulkBirthdayInput.value);
+      const rowCount = Math.max(joinValues.length, birthdayValues.length);
+      if (rowCount === 0) {
+        bulkSummary.textContent = "请先粘贴入职日期列表和生日列表。";
+        lastBulkRows = [];
+        renderBulkResults();
+        return;
+      }
+
+      lastBulkRows = Array.from({ length: rowCount }, (_, lineIndex) => {
+        const index = lineIndex + 1;
+        const joinText = joinValues[lineIndex] || "";
+        const birthdayText = birthdayValues[lineIndex] || "";
+        try {
+          if (!joinText || !birthdayText) {
+            throw new Error("缺少入职日期或生日");
+          }
+          const joinDate = parseJoinDate(joinText);
+          const { month, day } = parseBirthdayMonthDay(birthdayText);
+          const result = calculateBirthdayResult(joinDate, month, day);
+          return {
+            birthdayCountText: `第 ${result.birthdayCount} 次`,
+            birthdayRaw: result.birthdayCount,
+            birthdayText: monthDayKey(month, day),
+            index,
+            joinText: dateKey(joinDate),
+            nextBirthdayText: dateKey(result.nextBirthday),
+            ok: true,
+            status: "成功",
+            workDayRaw: result.workDay,
+            workDayText: `第 ${result.workDay} 天`
+          };
+        } catch (error) {
+          return {
+            birthdayCountText: "--",
+            birthdayRaw: "",
+            birthdayText: birthdayText || "--",
+            index,
+            joinText: joinText || "--",
+            nextBirthdayText: "--",
+            ok: false,
+            status: error.message,
+            workDayRaw: "",
+            workDayText: "--"
+          };
+        }
+      });
+
+      const successCount = lastBulkRows.filter((row) => row.ok).length;
+      const failedCount = lastBulkRows.length - successCount;
+      bulkSummary.textContent = `已处理 ${lastBulkRows.length} 行，成功 ${successCount} 行，失败 ${failedCount} 行。`;
+      renderBulkResults();
+    }
+
+    async function copyBulkResults() {
+      if (lastBulkRows.length === 0) {
+        calculateBulk();
+      }
+      if (lastBulkRows.length === 0) {
+        return;
+      }
+      const header = ["入职日期", "生日月日", "下一次生日", "入职第几天", "第几次生日", "状态"];
+      const body = lastBulkRows.map((row) => [
+        row.joinText,
+        row.birthdayText,
+        row.nextBirthdayText,
+        row.workDayRaw || row.workDayText,
+        row.birthdayRaw || row.birthdayCountText,
+        row.status
+      ]);
+      const text = [header, ...body].map((row) => row.join("\t")).join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+        bulkSummary.textContent = `已复制 ${lastBulkRows.length} 行结果，可直接粘贴回 Excel。`;
+      } catch (error) {
+        bulkSummary.textContent = "浏览器不允许自动复制，请手动选中结果表复制。";
+      }
+    }
+
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       calculate();
@@ -689,6 +1007,16 @@
         return;
       }
       await renderWish(lastBirthdayInfo);
+    });
+
+    bulkBtn.addEventListener("click", calculateBulk);
+
+    copyBulkBtn.addEventListener("click", copyBulkResults);
+
+    bulkSampleBtn.addEventListener("click", () => {
+      bulkJoinInput.value = "1999.09.09\n2020.5.12\n2022-04-18\n2027.01.01";
+      bulkBirthdayInput.value = "0101\n0929\n1009\n0101";
+      calculateBulk();
     });
 
     todayText.textContent = `今天 ${dateKey(new Date())}`;
