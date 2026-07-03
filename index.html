@@ -278,6 +278,74 @@
       background: rgba(180, 35, 24, .08);
     }
 
+    .insights {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .chip {
+      min-width: 0;
+      border-radius: 16px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, .72);
+      border: 1px solid var(--line);
+    }
+
+    .chip b {
+      display: block;
+      font-size: 20px;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+    }
+
+    .chip span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .wish-box {
+      border-radius: 18px;
+      padding: 18px;
+      background: linear-gradient(135deg, rgba(224, 82, 127, .1), rgba(243, 179, 76, .16));
+      border: 1px solid rgba(224, 82, 127, .18);
+    }
+
+    .wish-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .wish-title strong {
+      font-size: 16px;
+    }
+
+    .mini {
+      min-height: 34px;
+      padding: 0 13px;
+      font-size: 13px;
+      box-shadow: none;
+    }
+
+    .wish-text {
+      margin: 0;
+      color: #3d2b3a;
+      font-size: 15px;
+      line-height: 1.8;
+    }
+
+    .quote {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
     @media (max-width: 860px) {
       .app {
         grid-template-columns: 1fr;
@@ -305,7 +373,8 @@
       }
 
       .form,
-      .result {
+      .result,
+      .insights {
         grid-template-columns: 1fr;
       }
 
@@ -365,6 +434,32 @@
           <strong id="birthdayCount">--</strong>
           <span>这是入职后的第几次生日</span>
         </div>
+        <div class="insights">
+          <div class="chip">
+            <b id="constellation">--</b>
+            <span>星座</span>
+          </div>
+          <div class="chip">
+            <b id="zodiac">--</b>
+            <span>生肖</span>
+          </div>
+          <div class="chip">
+            <b id="birthYear">--</b>
+            <span>出生年份</span>
+          </div>
+          <div class="chip">
+            <b id="ageText">--</b>
+            <span>下一次生日年龄</span>
+          </div>
+        </div>
+        <div class="wish-box">
+          <div class="wish-title">
+            <strong>生日祝福语</strong>
+            <button class="secondary mini" type="button" id="wishBtn">换一句</button>
+          </div>
+          <p class="wish-text" id="wishText">计算后会自动生成一段祝福。</p>
+          <p class="quote" id="quoteText">灵感接口：等待调用</p>
+        </div>
         <div class="message" id="message">填写日期后，结果会显示在这里。</div>
       </aside>
     </section>
@@ -379,9 +474,17 @@
     const nextBirthdayText = document.querySelector("#nextBirthday");
     const workDayText = document.querySelector("#workDay");
     const birthdayCountText = document.querySelector("#birthdayCount");
+    const constellationText = document.querySelector("#constellation");
+    const zodiacText = document.querySelector("#zodiac");
+    const birthYearText = document.querySelector("#birthYear");
+    const ageText = document.querySelector("#ageText");
+    const wishBtn = document.querySelector("#wishBtn");
+    const wishText = document.querySelector("#wishText");
+    const quoteText = document.querySelector("#quoteText");
     const message = document.querySelector("#message");
 
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    let lastBirthdayInfo = null;
 
     function toLocalDate(value) {
       const [year, month, day] = value.split("-").map(Number);
@@ -430,10 +533,88 @@
       return count;
     }
 
+    function getConstellation(month, day) {
+      const signs = [
+        ["摩羯座", 1, 20], ["水瓶座", 2, 19], ["双鱼座", 3, 21], ["白羊座", 4, 20],
+        ["金牛座", 5, 21], ["双子座", 6, 22], ["巨蟹座", 7, 23], ["狮子座", 8, 23],
+        ["处女座", 9, 23], ["天秤座", 10, 24], ["天蝎座", 11, 23], ["射手座", 12, 22],
+        ["摩羯座", 12, 32]
+      ];
+      const numberMonth = month + 1;
+      return signs.find(([, signMonth, startDay]) => numberMonth < signMonth || (numberMonth === signMonth && day < startDay))[0];
+    }
+
+    function getChineseZodiac(year) {
+      const animals = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"];
+      return animals[(year - 4) % 12];
+    }
+
+    function buildLocalWish(info, quote) {
+      const wishes = [
+        `愿这个${info.constellation}的生日，把新的好运、清醒的判断和温柔的惊喜都带到你身边。${info.nextAge}岁这一年，继续闪闪发光。`,
+        `生日快乐！属${info.zodiac}的你，自带一份认真和韧劲。愿新一岁有热爱可奔赴，有目标可抵达，也有轻松自在的日常。`,
+        `下一次生日会是入职后的第 ${info.birthdayCount} 次生日，愿这一天不只被记住，也被好好庆祝。愿你一路有成长，也一路有甜。`,
+        `愿${info.birthYear}年出生的你，在${info.nextAge}岁这一年收获稳定、喜悦和漂亮的新开始。生日快乐，万事胜意。`
+      ];
+      const index = Math.abs(info.workDay + info.birthdayCount + Date.now()) % wishes.length;
+      return quote ? `${wishes[index]} 灵感送你一句：“${quote.hitokoto}”` : wishes[index];
+    }
+
+    async function getHitokotoQuote() {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3500);
+      try {
+        const response = await fetch("https://v1.hitokoto.cn/?encode=json&c=d&c=e&c=i&max_length=36", {
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error("quote api failed");
+        }
+        const data = await response.json();
+        return {
+          hitokoto: data.hitokoto,
+          from: data.from || "一言",
+          uuid: data.uuid
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function renderWish(info) {
+      wishText.textContent = "正在生成祝福语...";
+      quoteText.textContent = "灵感接口：正在调用一言";
+      try {
+        const quote = await getHitokotoQuote();
+        wishText.textContent = buildLocalWish(info, quote);
+        quoteText.textContent = "灵感来源：";
+        if (quote.uuid) {
+          const link = document.createElement("a");
+          link.href = `https://hitokoto.cn?uuid=${encodeURIComponent(quote.uuid)}`;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = `一言《${quote.from}》`;
+          quoteText.append(link);
+        } else {
+          quoteText.append(`一言《${quote.from}》`);
+        }
+      } catch (error) {
+        wishText.textContent = buildLocalWish(info);
+        quoteText.textContent = "灵感接口：调用失败，已使用本地祝福模板";
+      }
+    }
+
     function showError(text) {
       nextBirthdayText.textContent = "--";
       workDayText.textContent = "--";
       birthdayCountText.textContent = "--";
+      constellationText.textContent = "--";
+      zodiacText.textContent = "--";
+      birthYearText.textContent = "--";
+      ageText.textContent = "--";
+      wishText.textContent = "计算后会自动生成一段祝福。";
+      quoteText.textContent = "灵感接口：等待调用";
+      lastBirthdayInfo = null;
       message.textContent = text;
       message.classList.add("error");
     }
@@ -464,14 +645,31 @@
       const workDay = dayDiffInclusive(joinDate, nextBirthday);
       const count = countBirthdaysAfterJoin(joinDate, nextBirthday, birthdayMonth, birthdayDay);
       const daysUntilBirthday = dayDiffInclusive(currentDate, nextBirthday) - 1;
+      const constellation = getConstellation(birthdayMonth, birthdayDay);
+      const zodiac = getChineseZodiac(birthDate.getFullYear());
+      const nextAge = nextBirthday.getFullYear() - birthDate.getFullYear();
 
       nextBirthdayText.textContent = formatDate(nextBirthday);
       workDayText.textContent = `第 ${workDay} 天`;
       birthdayCountText.textContent = `第 ${count} 次`;
+      constellationText.textContent = constellation;
+      zodiacText.textContent = zodiac;
+      birthYearText.textContent = `${birthDate.getFullYear()} 年`;
+      ageText.textContent = `${nextAge} 岁`;
       message.textContent = daysUntilBirthday === 0
         ? "下一次生日就是今天，记得送上祝福。"
         : `距离下一次生日还有 ${daysUntilBirthday} 天。`;
       message.classList.remove("error");
+
+      lastBirthdayInfo = {
+        birthYear: birthDate.getFullYear(),
+        birthdayCount: count,
+        constellation,
+        nextAge,
+        workDay,
+        zodiac
+      };
+      renderWish(lastBirthdayInfo);
     }
 
     form.addEventListener("submit", (event) => {
@@ -483,6 +681,14 @@
       joinInput.value = "2022-04-18";
       birthdayInput.value = "1996-10-09";
       calculate();
+    });
+
+    wishBtn.addEventListener("click", async () => {
+      if (!lastBirthdayInfo) {
+        showError("请先完成一次生日计算，再生成祝福语。");
+        return;
+      }
+      await renderWish(lastBirthdayInfo);
     });
 
     todayText.textContent = `今天 ${dateKey(new Date())}`;
